@@ -11,10 +11,7 @@ struct SettingsView: View {
     @AppStorage("apiKey") private var apiKey = ""
     @AppStorage("selectedModel") private var selectedModel = "meta/meta-llama-3.1-70b-instruct"
     @AppStorage("customPrompt") private var customPrompt = """
-    Answer this homework question in 2-3 concise sentences.
-    If the question is multiple choice or multi-select, then start with options to select.
-    For example (The answer is option 1 and 2) and then explain.
-    Be direct and clear.
+    On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1-2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
     """
     @State private var showingSaved = false
     
@@ -139,17 +136,14 @@ struct SettingsView: View {
                     HStack {
                         Image(systemName: "info.circle")
                             .font(.caption)
-                        Text("Customize how the AI responds. Use {question} placeholder for the OCR text.")
+                        Text("Use **text** for bold formatting. Customize how the AI responds.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     
                     Button("Reset to Default") {
                         customPrompt = """
-                        Answer this homework question in 2-3 concise sentences.
-                        If the question is multiple choice or multi-select, then start with options to select.
-                        For example (The answer is option A and B) and then explain.
-                        Be direct and clear.
+                        On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1–2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
                         """
                     }
                     .font(.caption)
@@ -185,6 +179,18 @@ struct SettingsView: View {
                                 .background(Color.gray.opacity(0.2))
                                 .cornerRadius(6)
                             Text("Hide/show answer window")
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                        
+                        HStack {
+                            Text("⌘⇧T")
+                                .font(.system(.body, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.gray.opacity(0.2))
+                                .cornerRadius(6)
+                            Text("Send selected text to AI")
                                 .font(.subheadline)
                             Spacer()
                         }

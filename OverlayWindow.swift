@@ -8,16 +8,15 @@
 import AppKit
 
 class OverlayWindow: NSPanel {
-    let textField = NSTextField()
+    let textView = NSTextView()
     let scrollView = NSScrollView()
-    let containerView = NSView()
     
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 100),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -27,9 +26,11 @@ class OverlayWindow: NSPanel {
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.isFloatingPanel = true
         self.hidesOnDeactivate = false
-        self.isMovableByWindowBackground = true
+        self.isMovableByWindowBackground = false
         self.isOpaque = false
-        self.backgroundColor = .clear        
+        self.backgroundColor = .clear
+        self.hasShadow = false
+        
         setupContent()
         
         if let screen = NSScreen.main {
@@ -42,18 +43,8 @@ class OverlayWindow: NSPanel {
     func setupContent() {
         guard let contentView = self.contentView else { return }
         
-        // Container with solid white background
-        containerView.frame = contentView.bounds
-        containerView.autoresizingMask = [.width, .height]
-        containerView.wantsLayer = true
-        
-        let padding: CGFloat = 12
-        scrollView.frame = NSRect(
-            x: padding,
-            y: padding,
-            width: containerView.bounds.width - (padding * 2),
-            height: containerView.bounds.height - (padding * 2)
-        )
+        // Scroll view - completely transparent
+        scrollView.frame = contentView.bounds
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -61,68 +52,103 @@ class OverlayWindow: NSPanel {
         scrollView.borderType = .noBorder
         scrollView.autohidesScrollers = true
         
-        // Text field with dark text on white background
-        textField.frame = scrollView.bounds
-        textField.autoresizingMask = [.width]
-        textField.isBordered = false
-        textField.isBezeled = false
-        textField.drawsBackground = false
-        textField.isEditable = false
-        textField.isSelectable = true
-        textField.textColor = .darkGray
-        textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
-        textField.lineBreakMode = .byWordWrapping
-        textField.maximumNumberOfLines = 0
-        textField.preferredMaxLayoutWidth = scrollView.bounds.width - 20
-        textField.cell?.wraps = true
-        textField.cell?.isScrollable = false
-        textField.alignment = .left
+        // Text view - just text, no background
+        let textWidth = scrollView.bounds.width - 30  // Leave room for scroller
+        textView.frame = NSRect(x: 10, y: 10, width: textWidth, height: 0)
+        textView.minSize = NSSize(width: textWidth, height: 0)
+        textView.maxSize = NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = .width
         
-        scrollView.documentView = textField
-        containerView.addSubview(scrollView)
-        contentView.addSubview(containerView)
+        // Text container setup
+        if let textContainer = textView.textContainer {
+            textContainer.widthTracksTextView = true
+            textContainer.containerSize = NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude)
+            textContainer.lineFragmentPadding = 0
+        }
+        
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textColor = .darkGray
+        textView.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        
+        scrollView.documentView = textView
+        contentView.addSubview(scrollView)
     }
     
     func showWindow(with text: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            // Clean up text
+            // Clean up text - normalize spacing but KEEP ** for bold
             var cleanedText = text
-                .replacingOccurrences(of: "**", with: "")
-                .replacingOccurrences(of: "*", with: "")
-                .replacingOccurrences(of: "#", with: "")
+                .replacingOccurrences(of: "#", with: "")   // Remove headers
             
-            // Normalize spacing
+            // Normalize spacing - remove multiple spaces
+            while cleanedText.contains("  ") {
+                cleanedText = cleanedText.replacingOccurrences(of: "  ", with: " ")
+            }
+            
+            // Clean up lines
             let lines = cleanedText.components(separatedBy: CharacterSet.newlines)
             cleanedText = lines
-                .map { line in
-                    line.components(separatedBy: CharacterSet.whitespaces)
-                        .filter { !$0.isEmpty }
-                        .joined(separator: " ")
-                }
+                .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
             
-            self.textField.stringValue = cleanedText
+            // Parse and apply formatting
+            let attributedString = self.parseMarkdown(cleanedText)
+            self.textView.textStorage?.setAttributedString(attributedString)
             
-            // Update preferred width for proper wrapping
-            self.textField.preferredMaxLayoutWidth = self.scrollView.bounds.width - 20
+            // Force complete layout
+            if let layoutManager = self.textView.layoutManager,
+               let textContainer = self.textView.textContainer {
+                layoutManager.ensureLayout(for: textContainer)
+            }
             
-            // Force layout update
-            self.textField.invalidateIntrinsicContentSize()
-            self.textField.needsLayout = true
-            self.textField.layoutSubtreeIfNeeded()
+            // Update text view height based on content
+            self.textView.sizeToFit()
             
-            // Adjust text field height to fit content
-            let size = self.textField.sizeThatFits(NSSize(
-                width: self.scrollView.bounds.width - 20,
-                height: CGFloat.greatestFiniteMagnitude
-            ))
-            self.textField.frame = NSRect(x: 10, y: 0, width: self.scrollView.bounds.width - 20, height: max(size.height, self.scrollView.bounds.height))
+            // Scroll to top
+            self.textView.scroll(NSPoint.zero)
+            
+            // Force redraw
+            self.textView.needsDisplay = true
+            self.scrollView.needsDisplay = true
             
             self.orderFront(nil)
             self.makeKey()
         }
+    }
+    
+    private func parseMarkdown(_ text: String) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        
+        // Default paragraph style
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        
+        // Split by ** to find bold sections
+        let components = text.components(separatedBy: "**")
+        
+        for (index, component) in components.enumerated() {
+            let isBold = index % 2 == 1  // Odd indices are between ** markers
+            
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: isBold ? 
+                    NSFont.systemFont(ofSize: 14, weight: .bold) : 
+                    NSFont.systemFont(ofSize: 14, weight: .medium),
+                .foregroundColor: isBold ? NSColor.black : NSColor.darkGray,
+                .paragraphStyle: paragraphStyle
+            ]
+            
+            let attributedComponent = NSAttributedString(string: component, attributes: attributes)
+            result.append(attributedComponent)
+        }
+        
+        return result
     }
 }

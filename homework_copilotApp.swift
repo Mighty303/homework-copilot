@@ -13,7 +13,9 @@ struct HomeworkCopilotApp: App {
     
     var body: some Scene {
         // Empty scene - we only use menu bar
-        Settings {}
+        Settings {
+            
+        }
     }
 }
 
@@ -23,7 +25,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var configWindow: NSWindow?
     var hotKeyRef: EventHotKeyRef?
     var configHotKeyRef: EventHotKeyRef?
+    var textGrabHotKeyRef: EventHotKeyRef?
     let screenCapturer = ScreenCapturer()
+    let textGrabber = TextGrabber()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon - make it a pure menu bar app
@@ -33,8 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         registerCaptureHotKey()
         registerConfigHotKey()
+        registerTextGrabHotKey()
         floatingWindow = OverlayWindow()
         requestScreenCapturePermission()
+        requestAccessibilityPermission()
     }
     
     // MARK: - Menu Bar
@@ -49,6 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Show Settings", action: #selector(showConfigWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Hide/Show Answer (⌘⇧C)", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Capture Screenshot (⌘⇧S)", action: #selector(captureScreen), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Send Selected Text (⌘⇧T)", action: #selector(grabSelectedText), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
@@ -74,6 +81,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: NSNotification.Name("CaptureScreenshot"), object: nil)
             } else if hotKeyID.id == 2 {
                 NotificationCenter.default.post(name: NSNotification.Name("ToggleOverlay"), object: nil)
+            } else if hotKeyID.id == 3 {
+                NotificationCenter.default.post(name: NSNotification.Name("GrabSelectedText"), object: nil)
             }
             return noErr
         }, 1, &eventSpec, nil, nil)
@@ -95,6 +104,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ToggleOverlay"),
                                               object: nil, queue: .main) { _ in
             self.toggleOverlayWindow()
+        }
+    }
+    
+    func registerTextGrabHotKey() {
+        var hotKeyID = EventHotKeyID()
+        hotKeyID.signature = OSType(0x68776370)
+        hotKeyID.id = 3
+        
+        RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(cmdKey | shiftKey), hotKeyID,
+                          GetApplicationEventTarget(), 0, &textGrabHotKeyRef)
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("GrabSelectedText"),
+                                              object: nil, queue: .main) { _ in
+            self.grabSelectedText()
         }
     }
     
@@ -120,17 +143,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func showConfigWindow() {
+        print("🔧 Show settings clicked")
+        
+        // If window already exists and is visible, just bring it forward
+        if let window = configWindow, window.isVisible {
+            print("✅ Settings window already open, bringing to front")
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        // Create new window
         let contentView = SettingsView()
         let hostingController = NSHostingController(rootView: contentView)
         
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Homework Copilot Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 550, height: 650))  // Made larger for new section
+        window.setContentSize(NSSize(width: 550, height: 650))
         window.center()
+        
+        // Make sure window is visible
+        window.isReleasedWhenClosed = false
+        window.level = .normal
+        
+        print("🪟 Opening settings window")
         window.makeKeyAndOrderFront(nil)
         
+        // Force app activation
+        NSApp.activate(ignoringOtherApps: true)
+        
         self.configWindow = window
+        
+        print("✅ Settings window opened")
     }
     
     @objc func captureScreen() {
@@ -148,6 +193,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+    
+    @objc func grabSelectedText() {
+        print("📝 Grabbing selected text...")
+        
+        guard let selectedText = textGrabber.getSelectedText(), !selectedText.isEmpty else {
+            print("⚠️ No text selected")
+            floatingWindow?.showWindow(with: "No text selected. Please highlight text and try again.")
+            return
+        }
+        
+        print("✅ Got selected text: \(selectedText.prefix(100))...")
+        sendToLLM(text: selectedText)
     }
     
     // MARK: - OCR & LLM
@@ -203,7 +261,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func sendToLLM(text: String) {
-        // MUST be on main thread for UI updates
         Task { @MainActor in
             print("💬 Showing loading message...")
             floatingWindow?.showWindow(with: "loading...")
@@ -217,7 +274,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 
                 await MainActor.run {
                     print("💬 Showing answer...")
-                    floatingWindow?.showWindow(with: "💡 Answer:\n\(answer)")
+                    floatingWindow?.showWindow(with: answer)
                 }
             } catch {
                 print("❌ API Error: \(error)")
@@ -232,10 +289,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? "YOUR_REPLICATE_TOKEN"
         let modelVersion = UserDefaults.standard.string(forKey: "selectedModel") ?? "meta/meta-llama-3.1-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d"
         let customPrompt = UserDefaults.standard.string(forKey: "customPrompt") ?? """
-        Answer this homework question in 2-3 concise sentences.
-        If the question is multiple choice or multi-select, then start with options to select.
-        For example (The answer is option A and B) and then explain.
-        Be direct and clear.
+        On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1–2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
         """
 
         print("🔑 Using API key: \(apiKey.prefix(10))...")
@@ -247,7 +301,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         createRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
-        // Use custom prompt from settings
         let fullPrompt = """
         \(customPrompt)
         
@@ -322,6 +375,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 print("Permission request failed: \(error)")
             }
+        }
+    }
+    
+    func requestAccessibilityPermission() {
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        let accessEnabled = AXIsProcessTrustedWithOptions(options)
+        
+        if !accessEnabled {
+            print("⚠️ Accessibility permission needed for text grabbing")
         }
     }
 }

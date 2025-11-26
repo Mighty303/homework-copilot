@@ -6,5 +6,7 @@
 	<string>This app needs screen recording access to capture homework questions from your screen.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Optional: For capturing images of homework.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>This app needs permission to simulate keyboard events to copy selected text.</string>
 </dict>
 </plist>
