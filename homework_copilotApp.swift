@@ -12,12 +12,8 @@ struct HomeworkCopilotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-        .commands {
-            CommandGroup(replacing: .newItem) { }
-        }
+        // Empty scene - we only use menu bar
+        Settings {}
     }
 }
 
@@ -30,8 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let screenCapturer = ScreenCapturer()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide the default window
-        NSApp.windows.first?.close()
+        // Hide dock icon - make it a pure menu bar app
+        NSApp.setActivationPolicy(.accessory)
         
         // Setup
         setupMenuBar()
@@ -130,7 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Homework Copilot Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 500, height: 500))
+        window.setContentSize(NSSize(width: 550, height: 650))  // Made larger for new section
         window.center()
         window.makeKeyAndOrderFront(nil)
         
@@ -210,7 +206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // MUST be on main thread for UI updates
         Task { @MainActor in
             print("💬 Showing loading message...")
-            floatingWindow?.showWindow(with: "🔄 Processing your question...\n\n\(text)")
+            floatingWindow?.showWindow(with: "loading...")
         }
         
         Task {
@@ -235,6 +231,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func callReplicateAPI(question: String) async throws -> String {
         let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? "YOUR_REPLICATE_TOKEN"
         let modelVersion = UserDefaults.standard.string(forKey: "selectedModel") ?? "meta/meta-llama-3.1-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d"
+        let customPrompt = UserDefaults.standard.string(forKey: "customPrompt") ?? """
+        Answer this homework question in 2-3 concise sentences.
+        If the question is multiple choice or multi-select, then start with options to select.
+        For example (The answer is option A and B) and then explain.
+        Be direct and clear.
+        """
 
         print("🔑 Using API key: \(apiKey.prefix(10))...")
         print("🤖 Using model: \(modelVersion)")
@@ -245,20 +247,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         createRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
-        // Improved prompt for concise answers
+        // Use custom prompt from settings
+        let fullPrompt = """
+        \(customPrompt)
+        
+        Question: \(question)
+        
+        Answer:
+        """
+        
         let body: [String: Any] = [
             "version": modelVersion,
             "input": [
-                "prompt": """
-                Answer this homework question in 2-3 concise sentences.
-                If the question is multiple choice or multi-select, then start with options to select.
-                For example (The answer is option A and B) and then explain.
-                Be direct and clear.
-                
-                Question: \(question)
-                
-                Answer:
-                """,
+                "prompt": fullPrompt,
                 "max_tokens": 1024,
                 "temperature": 0.7
             ]

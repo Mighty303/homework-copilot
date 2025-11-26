@@ -10,6 +10,12 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("apiKey") private var apiKey = ""
     @AppStorage("selectedModel") private var selectedModel = "meta/meta-llama-3.1-70b-instruct"
+    @AppStorage("customPrompt") private var customPrompt = """
+    Answer this homework question in 2-3 concise sentences.
+    If the question is multiple choice or multi-select, then start with options to select.
+    For example (The answer is option 1 and 2) and then explain.
+    Be direct and clear.
+    """
     @State private var showingSaved = false
     
     let models = [
@@ -116,6 +122,43 @@ struct SettingsView: View {
                 
                 Divider()
                 
+                // Custom Prompt Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Custom Prompt Instructions", systemImage: "text.bubble")
+                        .font(.headline)
+                    
+                    TextEditor(text: $customPrompt)
+                        .frame(height: 120)
+                        .font(.system(size: 12))
+                        .padding(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
+                    
+                    HStack {
+                        Image(systemName: "info.circle")
+                            .font(.caption)
+                        Text("Customize how the AI responds. Use {question} placeholder for the OCR text.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Button("Reset to Default") {
+                        customPrompt = """
+                        Answer this homework question in 2-3 concise sentences.
+                        If the question is multiple choice or multi-select, then start with options to select.
+                        For example (The answer is option A and B) and then explain.
+                        Be direct and clear.
+                        """
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+                .padding(.vertical, 5)
+                
+                Divider()
+                
                 // Hotkeys Section
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Keyboard Shortcuts", systemImage: "keyboard")
@@ -164,7 +207,7 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .frame(width: 500, height: 500)
+        .frame(width: 550, height: 650)
         .onChange(of: apiKey) {
             showingSaved = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -172,6 +215,12 @@ struct SettingsView: View {
             }
         }
         .onChange(of: selectedModel) {
+            showingSaved = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                showingSaved = false
+            }
+        }
+        .onChange(of: customPrompt) {
             showingSaved = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 showingSaved = false

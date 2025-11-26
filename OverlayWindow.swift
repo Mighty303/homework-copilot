@@ -10,7 +10,7 @@ import AppKit
 class OverlayWindow: NSPanel {
     let textField = NSTextField()
     let scrollView = NSScrollView()
-    let visualEffectView = NSVisualEffectView()
+    let containerView = NSView()
     
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -18,7 +18,7 @@ class OverlayWindow: NSPanel {
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -27,13 +27,9 @@ class OverlayWindow: NSPanel {
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.isFloatingPanel = true
         self.hidesOnDeactivate = false
-        self.title = "Homework Copilot"
-        self.titlebarAppearsTransparent = true
         self.isMovableByWindowBackground = true
         self.isOpaque = false
-        self.backgroundColor = .clear
-        self.appearance = NSAppearance(named: .darkAqua)
-        
+        self.backgroundColor = .clear        
         setupContent()
         
         if let screen = NSScreen.main {
@@ -46,22 +42,17 @@ class OverlayWindow: NSPanel {
     func setupContent() {
         guard let contentView = self.contentView else { return }
         
-        // Visual effect view
-        visualEffectView.frame = contentView.bounds
-        visualEffectView.autoresizingMask = [.width, .height]
-        visualEffectView.material = .hudWindow
-        visualEffectView.state = .active
-        visualEffectView.blendingMode = .behindWindow
-        visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = 12
+        // Container with solid white background
+        containerView.frame = contentView.bounds
+        containerView.autoresizingMask = [.width, .height]
+        containerView.wantsLayer = true
         
-        // Scroll view
-        let padding: CGFloat = 16
+        let padding: CGFloat = 12
         scrollView.frame = NSRect(
             x: padding,
             y: padding,
-            width: visualEffectView.bounds.width - (padding * 2),
-            height: visualEffectView.bounds.height - (padding * 2)
+            width: containerView.bounds.width - (padding * 2),
+            height: containerView.bounds.height - (padding * 2)
         )
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
@@ -70,7 +61,7 @@ class OverlayWindow: NSPanel {
         scrollView.borderType = .noBorder
         scrollView.autohidesScrollers = true
         
-        // Simple text field with wrapping
+        // Text field with dark text on white background
         textField.frame = scrollView.bounds
         textField.autoresizingMask = [.width]
         textField.isBordered = false
@@ -78,18 +69,18 @@ class OverlayWindow: NSPanel {
         textField.drawsBackground = false
         textField.isEditable = false
         textField.isSelectable = true
-        textField.textColor = .white
+        textField.textColor = .darkGray
         textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
         textField.lineBreakMode = .byWordWrapping
-        textField.maximumNumberOfLines = 0  // No limit
+        textField.maximumNumberOfLines = 0
         textField.preferredMaxLayoutWidth = scrollView.bounds.width - 20
         textField.cell?.wraps = true
         textField.cell?.isScrollable = false
         textField.alignment = .left
         
         scrollView.documentView = textField
-        visualEffectView.addSubview(scrollView)
-        contentView.addSubview(visualEffectView)
+        containerView.addSubview(scrollView)
+        contentView.addSubview(containerView)
     }
     
     func showWindow(with text: String) {
