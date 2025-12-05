@@ -28,8 +28,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var textGrabHotKeyRef: EventHotKeyRef?
     var upArrowHotKeyRef: EventHotKeyRef?
     var downArrowHotKeyRef: EventHotKeyRef?
+    var rightArrowHotKeyRef: EventHotKeyRef?
     let screenCapturer = ScreenCapturer()
     let textGrabber = TextGrabber()
+    var lastCapturedImage: NSImage?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon - make it a pure menu bar app
@@ -56,9 +58,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Settings", action: #selector(showConfigWindow), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Hide/Show Answer (⌘⇧C)", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Capture Screenshot (⌘⇧S)", action: #selector(captureScreen), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Send Selected Text (⌘⇧T)", action: #selector(grabSelectedText), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Hide/Show Answer (⌘⇧C)", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        
+        let arrowItem = NSMenuItem(title: "Arrow Keys:", action: nil, keyEquivalent: "")
+        arrowItem.isEnabled = false
+        menu.addItem(arrowItem)
+        menu.addItem(NSMenuItem(title: "  ↑  Capture & OCR (text mode)", action: #selector(captureScreen), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  →  Capture & Vision (image mode)", action: #selector(captureAndSendImage), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  ↓  Toggle answer visibility", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
+        
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
@@ -90,6 +102,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: NSNotification.Name("UpArrowPressed"), object: nil)
             } else if hotKeyID.id == 5 {
                 NotificationCenter.default.post(name: NSNotification.Name("DownArrowPressed"), object: nil)
+            } else if hotKeyID.id == 6 {
+                NotificationCenter.default.post(name: NSNotification.Name("RightArrowPressed"), object: nil)
             }
             return noErr
         }, 1, &eventSpec, nil, nil)
@@ -159,9 +173,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.toggleOverlayWindow()
         }
         
+        // Right arrow - Send image directly to LLM (vision mode)
+        var rightArrowID = EventHotKeyID()
+        rightArrowID.signature = OSType(0x68776370)
+        rightArrowID.id = 6
+        
+        RegisterEventHotKey(UInt32(kVK_RightArrow), 0, rightArrowID,
+                          GetApplicationEventTarget(), 0, &rightArrowHotKeyRef)
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("RightArrowPressed"),
+                                              object: nil, queue: .main) { _ in
+            print("➡️ Right arrow pressed - sending image to vision model")
+            self.captureAndSendImage()
+        }
+        
         print("✅ Arrow key bindings registered:")
         print("   ↑ = Capture & OCR")
         print("   ↓ = Toggle answer visibility")
+        print("   → = Capture & send image to vision model")
     }
 
     // MARK: - Actions
@@ -228,7 +257,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("📸 Starting screen capture...")
                 let image = try await screenCapturer.captureScreen()
                 print("✅ Screen captured successfully!")
+                lastCapturedImage = image
                 await performOCR(on: image)
+            } catch {
+                print("❌ Screen capture failed: \(error)")
+                await MainActor.run {
+                    floatingWindow?.showWindow(with: "Failed to capture screen. Please grant Screen Recording permission in System Settings.")
+                }
+            }
+        }
+    }
+    
+    @objc func captureAndSendImage() {
+        print("🎬 Image capture triggered (vision mode)!")
+        Task {
+            do {
+                print("📸 Starting screen capture...")
+                let image = try await screenCapturer.captureScreen()
+                print("✅ Screen captured successfully!")
+                lastCapturedImage = image
+                await sendImageToVisionLLM(image: image)
             } catch {
                 print("❌ Screen capture failed: \(error)")
                 await MainActor.run {
@@ -328,6 +376,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    func sendImageToVisionLLM(image: NSImage) async {
+        await MainActor.run {
+            print("💬 Showing loading message...")
+            floatingWindow?.showWindow(with: "loading...")
+        }
+        
+        Task {
+            do {
+                print("🌐 Calling Claude Vision API...")
+                let answer = try await callClaudeVisionAPI(image: image)
+                print("✅ Got answer from API")
+                
+                await MainActor.run {
+                    print("💬 Showing answer...")
+                    floatingWindow?.showWindow(with: answer)
+                }
+            } catch {
+                print("❌ API Error: \(error)")
+                await MainActor.run {
+                    floatingWindow?.showWindow(with: "Error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
     func callReplicateAPI(question: String) async throws -> String {
         let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? "YOUR_REPLICATE_TOKEN"
         let modelVersion = UserDefaults.standard.string(forKey: "selectedModel") ?? "meta/meta-llama-3.1-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d"
@@ -409,6 +482,70 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         throw NSError(domain: "Replicate", code: -1, userInfo: [NSLocalizedDescriptionKey: "Timeout waiting for result"])
+    }
+    
+    func callClaudeVisionAPI(image: NSImage) async throws -> String {
+        let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? "YOUR_REPLICATE_TOKEN"
+        let customPrompt = UserDefaults.standard.string(forKey: "customPrompt") ?? """
+        On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1–2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
+        """
+        
+        print("🔑 Using API key: \(apiKey.prefix(10))...")
+        print("🤖 Using Claude 3.7 Sonnet (vision)")
+        
+        // Convert image to base64
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw NSError(domain: "ImageConversion", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image"])
+        }
+        
+        let base64Image = pngData.base64EncodedString()
+        print("📸 Image converted to base64 (\(base64Image.count) chars)")
+        
+        let createUrl = URL(string: "https://api.replicate.com/v1/predictions")!
+        var createRequest = URLRequest(url: createUrl)
+        createRequest.httpMethod = "POST"
+        createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        let fullPrompt = """
+        \(customPrompt)
+        
+        Please analyze this image and solve the problem or answer the question shown.
+        
+        Answer:
+        """
+        
+        let body: [String: Any] = [
+            "version": "anthropic/claude-3.7-sonnet",
+            "input": [
+                "prompt": fullPrompt,
+                "image": "data:image/png;base64,\(base64Image)",
+                "max_tokens": 1024,
+                "temperature": 0.7
+            ]
+        ]
+        
+        createRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: createRequest)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "Invalid response", code: -1)
+        }
+        
+        print("📡 HTTP Status: \(httpResponse.statusCode)")
+        
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        print("📡 API Response: \(json)")
+        
+        guard let getUrl = json["urls"] as? [String: String],
+              let pollUrl = getUrl["get"] else {
+            throw NSError(domain: "No poll URL", code: -1)
+        }
+        
+        return try await pollReplicateResult(url: pollUrl, apiKey: apiKey)
     }
     
     func requestScreenCapturePermission() {

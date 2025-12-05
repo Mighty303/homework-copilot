@@ -9,7 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("apiKey") private var apiKey = ""
-    @AppStorage("selectedModel") private var selectedModel = "meta/meta-llama-3.1-70b-instruct"
+    @AppStorage("selectedModel") private var selectedModel = "anthropic/claude-3.7-sonnet"
     @AppStorage("customPrompt") private var customPrompt = """
     On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1-2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
     """
@@ -17,19 +17,9 @@ struct SettingsView: View {
     
     let models = [
         ModelOption(
-            name: "Claude 3.7 Sonnet (Best)",
+            name: "Claude 3.7 Sonnet",
             value: "anthropic/claude-3.7-sonnet",
-            description: "Most capable - Excellent reasoning"
-        ),
-        ModelOption(
-            name: "Llama 3.1 70B (Fast)",
-            value: "meta/meta-llama-3.1-70b-instruct:fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
-            description: "Fast & capable"
-        ),
-        ModelOption(
-            name: "Mistral 7B (Fastest)",
-            value: "mistralai/mistral-7b-instruct-v0.2:f5701ad84de5715051cb99d550239719f8a754bad37e3bc06d7e2cef97f83923",
-            description: "Quick responses"
+            description: "Vision-capable - Supports images & text"
         )
     ]
     
@@ -81,35 +71,30 @@ struct SettingsView: View {
                         .font(.headline)
                     
                     ForEach(models, id: \.value) { model in
-                        Button(action: {
-                            selectedModel = model.value
-                        }) {
-                            HStack {
-                                Image(systemName: selectedModel == model.value ? "largecircle.fill.circle" : "circle")
-                                    .foregroundStyle(selectedModel == model.value ? .blue : .gray)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(model.name)
-                                        .font(.subheadline)
-                                        .foregroundColor(.primary)
-                                    Text(model.description)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
+                        HStack {
+                            Image(systemName: "largecircle.fill.circle")
+                                .foregroundStyle(.blue)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.name)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                                Text(model.description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            .padding(10)
-                            .background(selectedModel == model.value ? Color.blue.opacity(0.1) : Color.clear)
-                            .cornerRadius(8)
+                            Spacer()
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .padding(10)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(8)
                     }
                     
                     HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "eye.fill")
+                            .foregroundColor(.blue)
                             .font(.caption)
-                        Text("OCR: Apple Vision (free, fast, offline)")
+                        Text("Supports both text (OCR) and direct image analysis")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -191,6 +176,49 @@ struct SettingsView: View {
                                 .background(Color.gray.opacity(0.2))
                                 .cornerRadius(6)
                             Text("Send selected text to AI")
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                        
+                        Divider()
+                        
+                        HStack {
+                            Text("↑")
+                                .font(.system(.title3, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(6)
+                            Text("Capture & OCR → Text mode")
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                        
+                        HStack {
+                            Text("→")
+                                .font(.system(.title3, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Color.purple.opacity(0.2))
+                                .cornerRadius(6)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Capture & send image → Vision mode")
+                                    .font(.subheadline)
+                                Text("Best for diagrams, handwriting, complex layouts")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        
+                        HStack {
+                            Text("↓")
+                                .font(.system(.title3, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(6)
+                            Text("Toggle answer visibility")
                                 .font(.subheadline)
                             Spacer()
                         }
