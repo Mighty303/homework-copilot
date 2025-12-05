@@ -26,6 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotKeyRef: EventHotKeyRef?
     var configHotKeyRef: EventHotKeyRef?
     var textGrabHotKeyRef: EventHotKeyRef?
+    var upArrowHotKeyRef: EventHotKeyRef?
+    var downArrowHotKeyRef: EventHotKeyRef?
     let screenCapturer = ScreenCapturer()
     let textGrabber = TextGrabber()
     
@@ -38,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         registerCaptureHotKey()
         registerConfigHotKey()
         registerTextGrabHotKey()
+        registerArrowKeyHotKeys()
         floatingWindow = OverlayWindow()
         requestScreenCapturePermission()
         requestAccessibilityPermission()
@@ -83,6 +86,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: NSNotification.Name("ToggleOverlay"), object: nil)
             } else if hotKeyID.id == 3 {
                 NotificationCenter.default.post(name: NSNotification.Name("GrabSelectedText"), object: nil)
+            } else if hotKeyID.id == 4 {
+                NotificationCenter.default.post(name: NSNotification.Name("UpArrowPressed"), object: nil)
+            } else if hotKeyID.id == 5 {
+                NotificationCenter.default.post(name: NSNotification.Name("DownArrowPressed"), object: nil)
             }
             return noErr
         }, 1, &eventSpec, nil, nil)
@@ -120,7 +127,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.grabSelectedText()
         }
     }
+
+    // MARK: - Arrow Key Hotkeys
     
+    func registerArrowKeyHotKeys() {
+        // Up arrow - Capture screen
+        var upArrowID = EventHotKeyID()
+        upArrowID.signature = OSType(0x68776370)
+        upArrowID.id = 4
+        
+        RegisterEventHotKey(UInt32(kVK_UpArrow), 0, upArrowID,
+                          GetApplicationEventTarget(), 0, &upArrowHotKeyRef)
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("UpArrowPressed"),
+                                              object: nil, queue: .main) { _ in
+            print("⬆️ Up arrow pressed - capturing screen")
+            self.captureScreen()
+        }
+        
+        // Down arrow - Toggle visibility
+        var downArrowID = EventHotKeyID()
+        downArrowID.signature = OSType(0x68776370)
+        downArrowID.id = 5
+        
+        RegisterEventHotKey(UInt32(kVK_DownArrow), 0, downArrowID,
+                          GetApplicationEventTarget(), 0, &downArrowHotKeyRef)
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("DownArrowPressed"),
+                                              object: nil, queue: .main) { _ in
+            print("⬇️ Down arrow pressed - toggling visibility")
+            self.toggleOverlayWindow()
+        }
+        
+        print("✅ Arrow key bindings registered:")
+        print("   ↑ = Capture & OCR")
+        print("   ↓ = Toggle answer visibility")
+    }
+
     // MARK: - Actions
     
     @objc func toggleOverlayWindow() {
