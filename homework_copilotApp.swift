@@ -29,6 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var upArrowHotKeyRef: EventHotKeyRef?
     var downArrowHotKeyRef: EventHotKeyRef?
     var rightArrowHotKeyRef: EventHotKeyRef?
+    var leftArrowHotKeyRef: EventHotKeyRef?
     let screenCapturer = ScreenCapturer()
     let textGrabber = TextGrabber()
     var lastCapturedImage: NSImage?
@@ -67,8 +68,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let arrowItem = NSMenuItem(title: "Arrow Keys:", action: nil, keyEquivalent: "")
         arrowItem.isEnabled = false
         menu.addItem(arrowItem)
-        menu.addItem(NSMenuItem(title: "  ↑  Capture & OCR (text mode)", action: #selector(captureScreen), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "  →  Capture & Vision (image mode)", action: #selector(captureAndSendImage), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  ↑  Capture full screen & OCR", action: #selector(captureScreen), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  →  Capture full screen & Vision", action: #selector(captureAndSendImage), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  ←  Capture cursor region & OCR (500px)", action: #selector(captureRegionAroundCursor), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "  ↓  Toggle answer visibility", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
         
         menu.addItem(NSMenuItem.separator())
@@ -104,6 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: NSNotification.Name("DownArrowPressed"), object: nil)
             } else if hotKeyID.id == 6 {
                 NotificationCenter.default.post(name: NSNotification.Name("RightArrowPressed"), object: nil)
+            } else if hotKeyID.id == 7 {
+                NotificationCenter.default.post(name: NSNotification.Name("LeftArrowPressed"), object: nil)
             }
             return noErr
         }, 1, &eventSpec, nil, nil)
@@ -187,10 +191,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.captureAndSendImage()
         }
         
+        // Left arrow - Capture region around cursor
+        var leftArrowID = EventHotKeyID()
+        leftArrowID.signature = OSType(0x68776370)
+        leftArrowID.id = 7
+        
+        RegisterEventHotKey(UInt32(kVK_LeftArrow), 0, leftArrowID,
+                          GetApplicationEventTarget(), 0, &leftArrowHotKeyRef)
+        
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("LeftArrowPressed"),
+                                              object: nil, queue: .main) { _ in
+            print("⬅️ Left arrow pressed - capturing region around cursor")
+            self.captureRegionAroundCursor()
+        }
+        
         print("✅ Arrow key bindings registered:")
-        print("   ↑ = Capture & OCR")
-        print("   ↓ = Toggle answer visibility")
-        print("   → = Capture & send image to vision model")
+        print("   ↑ = Full screen OCR")
+        print("   → = Full screen Vision")
+        print("   ← = Region OCR (500px radius)")
+        print("   ↓ = Toggle visibility")
     }
 
     // MARK: - Actions
@@ -297,6 +316,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         print("✅ Got selected text: \(selectedText.prefix(100))...")
         sendToLLM(text: selectedText)
+    }
+    
+    @objc func captureRegionAroundCursor() {
+        print("🎯 Capturing region around cursor!")
+        Task {
+            do {
+                // Get current mouse location
+                let mouseLocation = NSEvent.mouseLocation
+                
+                // Convert to screen coordinates (flip Y axis)
+                guard let screen = NSScreen.main else {
+                    throw NSError(domain: "ScreenCapture", code: -1, userInfo: [NSLocalizedDescriptionKey: "No main screen found"])
+                }
+                
+                let screenHeight = screen.frame.height
+                let flippedY = screenHeight - mouseLocation.y
+                
+                // Calculate region (500px radius = 1000x1000 square)
+                let radius: CGFloat = 500
+                let captureRect = CGRect(
+                    x: mouseLocation.x - radius,
+                    y: flippedY - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                )
+                
+                print("📍 Mouse at: (\(mouseLocation.x), \(mouseLocation.y))")
+                print("📐 Capture rect: \(captureRect)")
+                
+                let image = try await screenCapturer.captureRegion(rect: captureRect)
+                print("✅ Region captured successfully!")
+                lastCapturedImage = image
+                
+                // Use OCR by default (faster and free)
+                await performOCR(on: image)
+            } catch {
+                print("❌ Region capture failed: \(error)")
+                await MainActor.run {
+                    floatingWindow?.showWindow(with: "Failed to capture region: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     // MARK: - OCR & LLM
@@ -435,8 +496,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
         
         createRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        createRequest.timeoutInterval = 120 // 2 minutes timeout
         
-        let (data, response) = try await URLSession.shared.data(for: createRequest)
+        // Create a session with longer timeout for text requests
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 300
+        let session = URLSession(configuration: config)
+        
+        let (data, response) = try await session.data(for: createRequest)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "Invalid response", code: -1)
@@ -491,17 +559,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         """
         
         print("🔑 Using API key: \(apiKey.prefix(10))...")
-        print("🤖 Using Claude 3.7 Sonnet (vision)")
+        print("🤖 Using Claude 4.5 Sonnet (vision)")
         
-        // Convert image to base64
-        guard let tiffData = image.tiffRepresentation,
+        // Resize image if too large to prevent timeouts
+        let maxDimension: CGFloat = 1920
+        var processedImage = image
+        
+        if image.size.width > maxDimension || image.size.height > maxDimension {
+            let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
+            let newSize = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            
+            processedImage = NSImage(size: newSize)
+            processedImage.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: newSize))
+            processedImage.unlockFocus()
+            
+            print("📏 Resized image from \(image.size) to \(newSize)")
+        }
+        
+        // Convert image to base64 with JPEG compression for smaller size
+        guard let tiffData = processedImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
             throw NSError(domain: "ImageConversion", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image"])
         }
         
-        let base64Image = pngData.base64EncodedString()
-        print("📸 Image converted to base64 (\(base64Image.count) chars)")
+        let base64Image = jpegData.base64EncodedString()
+        print("📸 Image converted to base64 (\(base64Image.count) chars, \(jpegData.count) bytes)")
         
         let createUrl = URL(string: "https://api.replicate.com/v1/predictions")!
         var createRequest = URLRequest(url: createUrl)
@@ -518,18 +602,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         """
         
         let body: [String: Any] = [
-            "version": "anthropic/claude-3.7-sonnet",
+            "version": "anthropic/claude-4.5-sonnet",
             "input": [
                 "prompt": fullPrompt,
-                "image": "data:image/png;base64,\(base64Image)",
+                "image": "data:image/jpeg;base64,\(base64Image)",
                 "max_tokens": 1024,
                 "temperature": 0.7
             ]
         ]
         
         createRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        createRequest.timeoutInterval = 120 // 2 minutes for large image uploads
         
-        let (data, response) = try await URLSession.shared.data(for: createRequest)
+        // Create a session with longer timeout for image requests
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 300
+        let session = URLSession(configuration: config)
+        
+        let (data, response) = try await session.data(for: createRequest)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "Invalid response", code: -1)

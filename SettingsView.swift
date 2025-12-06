@@ -9,7 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("apiKey") private var apiKey = ""
-    @AppStorage("selectedModel") private var selectedModel = "anthropic/claude-3.7-sonnet"
+    @AppStorage("selectedModel") private var selectedModel = "anthropic/claude-4.5-sonnet"
     @AppStorage("customPrompt") private var customPrompt = """
     On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1-2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
     """
@@ -17,9 +17,9 @@ struct SettingsView: View {
     
     let models = [
         ModelOption(
-            name: "Claude 3.7 Sonnet",
-            value: "anthropic/claude-3.7-sonnet",
-            description: "Vision-capable - Supports images & text"
+            name: "Claude 4.5 Sonnet",
+            value: "anthropic/claude-4.5-sonnet",
+            description: "Vision-capable - Latest & most capable"
         )
     ]
     
@@ -205,6 +205,23 @@ struct SettingsView: View {
                                 Text("Capture & send image → Vision mode")
                                     .font(.subheadline)
                                 Text("Best for diagrams, handwriting, complex layouts")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        
+                        HStack {
+                            Text("←")
+                                .font(.system(.title3, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Color.orange.opacity(0.2))
+                                .cornerRadius(6)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Capture region & OCR (500px)")
+                                    .font(.subheadline)
+                                Text("Fast, focused capture around cursor")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
