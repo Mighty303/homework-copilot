@@ -251,7 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Homework Copilot Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 550, height: 650))
+        window.setContentSize(NSSize(width: 550, height: 780))
         window.center()
         
         // Make sure window is visible
@@ -478,12 +478,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         createRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
-        let fullPrompt = """
+        let ragContext = RAGStore.shared.retrievedContext(for: question)
+        let fullPrompt = ragContext.isEmpty ? """
         \(customPrompt)
         
         Question: \(question)
         
         Answer:
+        """ : """
+        \(customPrompt)
+        
+        \(ragContext)
+        
+        Question: \(question)
+        
+        Answer using the slide material when relevant:
         """
         
         let body: [String: Any] = [
@@ -593,10 +602,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         createRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
-        let fullPrompt = """
+        let ragContext = RAGStore.shared.retrievedContext(for: "image analysis")
+        let fullPrompt = ragContext.isEmpty ? """
         \(customPrompt)
         
         Please analyze this image and solve the problem or answer the question shown.
+        
+        Answer:
+        """ : """
+        \(customPrompt)
+        
+        \(ragContext)
+        
+        Please analyze this image and solve the problem or answer the question shown. Use the slide material above when relevant.
         
         Answer:
         """

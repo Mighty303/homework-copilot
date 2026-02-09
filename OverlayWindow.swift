@@ -16,7 +16,7 @@ class OverlayWindow: NSPanel {
     
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -34,8 +34,8 @@ class OverlayWindow: NSPanel {
         setupContent()
         
         if let screen = NSScreen.main {
-            let x = (screen.frame.width - 400) / 2
-            let y = 100.0
+            let x = (screen.frame.width - 800) / 2
+            let y = 40.0  // Much lower on screen
             self.setFrameOrigin(NSPoint(x: x, y: y))
         }
     }
@@ -72,7 +72,7 @@ class OverlayWindow: NSPanel {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.textColor = .darkGray
-        textView.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        textView.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         textView.textContainerInset = NSSize(width: 0, height: 0)
         
         scrollView.documentView = textView
@@ -129,7 +129,7 @@ class OverlayWindow: NSPanel {
         
         // Default paragraph style
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
+        paragraphStyle.lineSpacing = 2
         
         // Split by ** to find bold sections
         let components = text.components(separatedBy: "**")
@@ -139,8 +139,8 @@ class OverlayWindow: NSPanel {
             
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: isBold ? 
-                    NSFont.systemFont(ofSize: 14, weight: .bold) : 
-                    NSFont.systemFont(ofSize: 14, weight: .medium),
+                    NSFont.systemFont(ofSize: 13, weight: .bold) : 
+                    NSFont.systemFont(ofSize: 13, weight: .medium),
                 .foregroundColor: isBold ? NSColor.black : NSColor.darkGray,
                 .paragraphStyle: paragraphStyle
             ]
