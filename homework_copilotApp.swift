@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var floatingWindow: OverlayWindow?
     var configWindow: NSWindow?
+    var studyWindow: NSWindow?
     var hotKeyRef: EventHotKeyRef?
     var configHotKeyRef: EventHotKeyRef?
     var textGrabHotKeyRef: EventHotKeyRef?
@@ -62,15 +63,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Capture Screenshot (⌘⇧S)", action: #selector(captureScreen), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Send Selected Text (⌘⇧T)", action: #selector(grabSelectedText), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Study Deck (Flashcards & Quiz)", action: #selector(showStudyWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Hide/Show Answer (⌘⇧C)", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
-        let arrowItem = NSMenuItem(title: "Arrow Keys:", action: nil, keyEquivalent: "")
+        let arrowItem = NSMenuItem(title: "Arrow Shortcuts:", action: nil, keyEquivalent: "")
         arrowItem.isEnabled = false
         menu.addItem(arrowItem)
-        menu.addItem(NSMenuItem(title: "  ↑  Capture full screen & OCR", action: #selector(captureScreen), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  ⌥↑  Capture full screen & OCR", action: #selector(captureScreen), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "  →  Capture full screen & Vision", action: #selector(captureAndSendImage), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "  ←  Capture cursor region & OCR (500px)", action: #selector(captureRegionAroundCursor), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "  ⌥←  Capture cursor region & OCR (500px)", action: #selector(captureRegionAroundCursor), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "  ↓  Toggle answer visibility", action: #selector(toggleOverlayWindow), keyEquivalent: ""))
         
         menu.addItem(NSMenuItem.separator())
@@ -149,12 +151,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Arrow Key Hotkeys
     
     func registerArrowKeyHotKeys() {
-        // Up arrow - Capture screen
+        // ⌥↑ - Capture screen
         var upArrowID = EventHotKeyID()
         upArrowID.signature = OSType(0x68776370)
         upArrowID.id = 4
         
-        RegisterEventHotKey(UInt32(kVK_UpArrow), 0, upArrowID,
+        RegisterEventHotKey(UInt32(kVK_UpArrow), UInt32(optionKey), upArrowID,
                           GetApplicationEventTarget(), 0, &upArrowHotKeyRef)
         
         NotificationCenter.default.addObserver(forName: NSNotification.Name("UpArrowPressed"),
@@ -191,12 +193,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.captureAndSendImage()
         }
         
-        // Left arrow - Capture region around cursor
+        // ⌥← - Capture region around cursor
         var leftArrowID = EventHotKeyID()
         leftArrowID.signature = OSType(0x68776370)
         leftArrowID.id = 7
         
-        RegisterEventHotKey(UInt32(kVK_LeftArrow), 0, leftArrowID,
+        RegisterEventHotKey(UInt32(kVK_LeftArrow), UInt32(optionKey), leftArrowID,
                           GetApplicationEventTarget(), 0, &leftArrowHotKeyRef)
         
         NotificationCenter.default.addObserver(forName: NSNotification.Name("LeftArrowPressed"),
@@ -206,13 +208,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         print("✅ Arrow key bindings registered:")
-        print("   ↑ = Full screen OCR")
-        print("   → = Full screen Vision")
-        print("   ← = Region OCR (500px radius)")
-        print("   ↓ = Toggle visibility")
+        print("   ⌥↑ = Full screen OCR")
+        print("   →  = Full screen Vision")
+        print("   ⌥← = Region OCR (500px radius)")
+        print("   ↓  = Toggle visibility")
     }
 
     // MARK: - Actions
+    
+    @objc func showStudyWindow() {
+        print("📚 Show study deck clicked")
+        
+        if let window = studyWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        let contentView = StudyView()
+        let hostingController = NSHostingController(rootView: contentView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Study Deck"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 900, height: 620))
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.level = .normal
+        
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        self.studyWindow = window
+        
+        print("✅ Study window opened")
+    }
     
     @objc func toggleOverlayWindow() {
         guard let window = floatingWindow else { return }
@@ -420,8 +450,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         Task {
             do {
-                print("🌐 Calling Replicate API...")
-                let answer = try await callReplicateAPI(question: text)
+                let provider = UserDefaults.standard.string(forKey: "aiProvider") ?? "replicate"
+                print("🌐 Calling \(provider == "claude" ? "Claude Direct" : "Replicate") API...")
+                let answer = try await (provider == "claude" ? callClaudeDirectAPI(question: text) : callReplicateAPI(question: text))
                 print("✅ Got answer from API")
                 
                 await MainActor.run {
@@ -445,8 +476,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         Task {
             do {
-                print("🌐 Calling Claude Vision API...")
-                let answer = try await callClaudeVisionAPI(image: image)
+                let provider = UserDefaults.standard.string(forKey: "aiProvider") ?? "replicate"
+                print("🌐 Calling \(provider == "claude" ? "Claude Direct Vision" : "Claude Vision via Replicate") API...")
+                let answer = try await (provider == "claude" ? callClaudeDirectVisionAPI(image: image) : callClaudeVisionAPI(image: image))
                 print("✅ Got answer from API")
                 
                 await MainActor.run {
@@ -657,6 +689,160 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return try await pollReplicateResult(url: pollUrl, apiKey: apiKey)
     }
     
+    func callClaudeDirectAPI(question: String) async throws -> String {
+        let apiKey = UserDefaults.standard.string(forKey: "claudeApiKey") ?? ""
+        let model = UserDefaults.standard.string(forKey: "claudeModel") ?? "claude-sonnet-4-6"
+        let customPrompt = UserDefaults.standard.string(forKey: "customPrompt") ?? """
+        On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1–2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
+        """
+
+        print("🔑 Using Claude API key: \(apiKey.prefix(10))...")
+        print("🤖 Using model: \(model)")
+
+        let ragContext = RAGStore.shared.retrievedContext(for: question)
+        let fullPrompt = ragContext.isEmpty ? """
+        \(customPrompt)
+
+        Question: \(question)
+
+        Answer:
+        """ : """
+        \(customPrompt)
+
+        \(ragContext)
+
+        Question: \(question)
+
+        Answer using the slide material when relevant:
+        """
+
+        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.timeoutInterval = 60
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "messages": [["role": "user", "content": fullPrompt]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = (errorJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(httpResponse.statusCode)"
+            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        guard let content = json["content"] as? [[String: Any]],
+              let first = content.first,
+              let text = first["text"] as? String else {
+            throw NSError(domain: "ClaudeAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+        }
+        return text
+    }
+
+    func callClaudeDirectVisionAPI(image: NSImage) async throws -> String {
+        let apiKey = UserDefaults.standard.string(forKey: "claudeApiKey") ?? ""
+        let model = UserDefaults.standard.string(forKey: "claudeModel") ?? "claude-sonnet-4-6"
+        let customPrompt = UserDefaults.standard.string(forKey: "customPrompt") ?? """
+        On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1–2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
+        """
+
+        print("🔑 Using Claude API key: \(apiKey.prefix(10))...")
+        print("🤖 Using model: \(model) (vision)")
+
+        let maxDimension: CGFloat = 1920
+        var processedImage = image
+        if image.size.width > maxDimension || image.size.height > maxDimension {
+            let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
+            let newSize = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            processedImage = NSImage(size: newSize)
+            processedImage.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: newSize))
+            processedImage.unlockFocus()
+            print("📏 Resized image to \(newSize)")
+        }
+
+        guard let tiffData = processedImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+            throw NSError(domain: "ImageConversion", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image"])
+        }
+        let base64Image = jpegData.base64EncodedString()
+        print("📸 Image encoded (\(jpegData.count) bytes)")
+
+        let ragContext = RAGStore.shared.retrievedContext(for: "image analysis")
+        let textPrompt = ragContext.isEmpty ? """
+        \(customPrompt)
+
+        Please analyze this image and solve the problem or answer the question shown.
+
+        Answer:
+        """ : """
+        \(customPrompt)
+
+        \(ragContext)
+
+        Please analyze this image and solve the problem or answer the question shown. Use the slide material above when relevant.
+
+        Answer:
+        """
+
+        let messageContent: [[String: Any]] = [
+            [
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64Image
+                ]
+            ],
+            ["type": "text", "text": textPrompt]
+        ]
+
+        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "messages": [["role": "user", "content": messageContent]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 300
+        let session = URLSession(configuration: config)
+
+        let (data, response) = try await session.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = (errorJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(httpResponse.statusCode)"
+            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        guard let content = json["content"] as? [[String: Any]],
+              let first = content.first,
+              let text = first["text"] as? String else {
+            throw NSError(domain: "ClaudeAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+        }
+        return text
+    }
+
     func requestScreenCapturePermission() {
         Task {
             do {

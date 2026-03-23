@@ -12,6 +12,9 @@ import AppKit
 struct SettingsView: View {
     @AppStorage("apiKey") private var apiKey = ""
     @AppStorage("selectedModel") private var selectedModel = "anthropic/claude-4.5-sonnet"
+    @AppStorage("aiProvider") private var aiProvider = "replicate"
+    @AppStorage("claudeApiKey") private var claudeApiKey = ""
+    @AppStorage("claudeModel") private var claudeModel = "claude-sonnet-4-6"
     @AppStorage("customPrompt") private var customPrompt = """
     On the first line, output ONLY the final answer in bold using two asterisks on each side, like this: **The answer is option A**. Do not include any other text on that line. After that, write a 1-2 sentence explanation. Always use bold by wrapping text in double asterisks. No preamble, no extra lines before the answer.
     """
@@ -50,61 +53,78 @@ struct SettingsView: View {
                 .padding(.bottom, 10)
                 
                 Divider()
-                
-                // API Key Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Replicate API Token", systemImage: "key.fill")
-                        .font(.headline)
-                    
-                    SecureField("r8_...", text: $apiKey)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    
-                    HStack {
-                        Image(systemName: "info.circle")
-                            .font(.caption)
-                        Text("Get your API token from: replicate.com/account/api-tokens")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 5)
-                
-                Divider()
-                
-                // Model Selection
+
+                // AI Provider Section
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("LLM Model", systemImage: "cpu")
+                    Label("AI Provider", systemImage: "network")
                         .font(.headline)
-                    
-                    ForEach(models, id: \.value) { model in
-                        HStack {
-                            Image(systemName: "largecircle.fill.circle")
-                                .foregroundStyle(.blue)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(model.name)
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                                Text(model.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+
+                    Picker("Provider", selection: $aiProvider) {
+                        Text("Replicate").tag("replicate")
+                        Text("Claude Direct").tag("claude")
+                    }
+                    .pickerStyle(.segmented)
+
+                    if aiProvider == "replicate" {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Replicate API Token")
+                                .font(.subheadline).foregroundColor(.secondary)
+                            SecureField("r8_...", text: $apiKey)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                            HStack {
+                                Image(systemName: "info.circle").font(.caption)
+                                Text("Get your token from: replicate.com/account/api-tokens")
+                                    .font(.caption).foregroundColor(.secondary)
                             }
-                            Spacer()
                         }
-                        .padding(10)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(8)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Model")
+                                .font(.subheadline).foregroundColor(.secondary)
+                            ForEach(models, id: \.value) { model in
+                                HStack {
+                                    Image(systemName: "largecircle.fill.circle").foregroundStyle(.blue)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(model.name).font(.subheadline).foregroundColor(.primary)
+                                        Text(model.description).font(.caption).foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(10)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Anthropic API Key")
+                                .font(.subheadline).foregroundColor(.secondary)
+                            SecureField("sk-ant-...", text: $claudeApiKey)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                            HStack {
+                                Image(systemName: "info.circle").font(.caption)
+                                Text("Get your key from: console.anthropic.com")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Model")
+                                .font(.subheadline).foregroundColor(.secondary)
+                            Picker("Claude Model", selection: $claudeModel) {
+                                Text("Claude Sonnet 4.6").tag("claude-sonnet-4-6")
+                                Text("Claude Opus 4.6 (Most capable)").tag("claude-opus-4-6")
+                                Text("Claude Sonnet 4.5").tag("claude-sonnet-4-5")
+                                Text("Claude Haiku 4.5 (Fast)").tag("claude-haiku-4-5-20251001")
+                            }
+                            .pickerStyle(.radioGroup)
+                            HStack {
+                                Image(systemName: "eye.fill").foregroundColor(.purple).font(.caption)
+                                Text("Supports text (OCR) and direct image vision — no polling")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                        }
                     }
-                    
-                    HStack {
-                        Image(systemName: "eye.fill")
-                            .foregroundColor(.blue)
-                            .font(.caption)
-                        Text("Supports both text (OCR) and direct image analysis")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 5)
                 }
                 .padding(.vertical, 5)
                 
@@ -283,7 +303,7 @@ struct SettingsView: View {
                         Divider()
                         
                         HStack {
-                            Text("↑")
+                            Text("⌥↑")
                                 .font(.system(.title3, design: .monospaced))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 4)
@@ -312,7 +332,7 @@ struct SettingsView: View {
                         }
                         
                         HStack {
-                            Text("←")
+                            Text("⌥←")
                                 .font(.system(.title3, design: .monospaced))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 4)
@@ -361,21 +381,27 @@ struct SettingsView: View {
         .frame(width: 550, height: 780)
         .onChange(of: apiKey) {
             showingSaved = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showingSaved = false
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
+        }
+        .onChange(of: claudeApiKey) {
+            showingSaved = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
+        }
+        .onChange(of: aiProvider) {
+            showingSaved = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
+        }
+        .onChange(of: claudeModel) {
+            showingSaved = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
         }
         .onChange(of: selectedModel) {
             showingSaved = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showingSaved = false
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
         }
         .onChange(of: customPrompt) {
             showingSaved = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showingSaved = false
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showingSaved = false }
         }
     }
     
